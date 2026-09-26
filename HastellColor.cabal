@@ -50,9 +50,18 @@ build-type:         Simple
 -- Extra doc files to be distributed with the package, such as a CHANGELOG or a README.
 extra-doc-files:    CHANGELOG.md
                    README.md
+                   apple/README.md
 
 -- Extra source files to be distributed with the package, such as examples, or a tutorial module.
--- extra-source-files:
+extra-source-files: metal/Paint.metal.in
+                    apple/HastellColor/*.swift
+                    apple/HastellColor/Info.plist
+                    apple/HastellColor/Generated/Paint.metal
+                    apple/HastellColor.xcodeproj/project.pbxproj
+                    apple/HastellColor.xcodeproj/xcshareddata/xcschemes/*.xcscheme
+                    apple/Tests/*.swift
+                    apple/UITests/*.swift
+                    scripts/check-apple.sh
 
 common warnings
     ghc-options: -Wall
@@ -63,9 +72,17 @@ library
                       HastellColor.Paper
                       HastellColor.Stroke
                       HastellColor.Brush.OilPastel
+                      HastellColor.Brush.Kernel
                       HastellColor.Image.PPM
     hs-source-dirs:   src
     build-depends:    base ^>=4.21.0.0
+    default-language: GHC2021
+
+executable hastellcolor-metal
+    import:           warnings
+    main-is:          GenerateMetal.hs
+    hs-source-dirs:   tools
+    build-depends:    base ^>=4.21.0.0, HastellColor
     default-language: GHC2021
 
 executable HastellColor

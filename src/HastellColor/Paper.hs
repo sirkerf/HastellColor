@@ -11,6 +11,7 @@ module HastellColor.Paper
 import Data.Bits (shiftR, xor)
 import Data.Word (Word32)
 import HastellColor.Color (RGB (..), black, blendRGB, clampRGB)
+import qualified HastellColor.Brush.Kernel as Kernel
 
 -- | Dimensions are measured in cells and must be positive.
 -- Roughness is normalized to [0, 1]; zero denotes smooth paper.
@@ -100,10 +101,7 @@ surfaceHeights paper
     mean a b c = a + b + c
     subtractCenters totals centers = zipWith (\total center -> (total - center) / 8) totals centers
     raisedHeight cell nearby =
-      let amount = cellPigmentAmount cell
-          fill = max 0 (min 1 (0.65 * amount + 1.6 * nearby))
-          height = cellHeight cell
-       in height + (1 - height) * fill
+      Kernel.raisedSurface (cellHeight cell) (cellPigmentAmount cell) nearby
     chunks _ [] = []
     chunks size values = let (row, rest) = splitAt size values in row : chunks size rest
 

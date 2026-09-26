@@ -8,6 +8,7 @@ import HastellColor.Color (RGB (..), black, blendRGB, clampRGB, white)
 import HastellColor.Image.PPM (encodePPM, encodeRGBRows)
 import HastellColor.Paper (Paper (..), PaperCell (..), PaperSettings (..), makePaper, visibleColor, surfaceHeights)
 import HastellColor.Stroke (Point (..), Stroke (..), StrokeSample (..), uprightSample, interpolateSample)
+import qualified HastellColor.Brush.Kernel as Kernel
 import qualified Scenes
 import System.Exit (die, exitFailure)
 
@@ -43,7 +44,12 @@ main = do
   bridgedValley <- render pastel fresh (Stroke [sample 1.5 1.5 0.2]) bridgedPaper
   comparisons <- either die pure Scenes.renderComparisons
   let checks =
-        [ ("clampRGB preserves colors within [0, 1]", all (\color -> clampRGB color == color) inRangeColors)
+        [ ("stroke strength preserves zero contact and identity",
+            all (\c -> Kernel.strokeContact c 1 == c && Kernel.strokeContact 0 c == (0 :: Double)) [0, 0.1, 0.5, 1])
+        , ("stroke strength is monotone and bounded",
+            all (\c -> let weak = Kernel.strokeContact c 0.25; strong = Kernel.strokeContact c 2.5
+                       in weak >= 0 && weak <= strong && strong <= (1 :: Double)) [0, 0.1, 0.5, 1])
+        , ("clampRGB preserves colors within [0, 1]", all (\color -> clampRGB color == color) inRangeColors)
         , ("clampRGB clips out-of-range components", clampRGB (RGB (-0.25) 0.5 1.25) == RGB 0 0.5 1)
         , ("clampRGB bounds every component", all (isInRange . clampRGB) sampleColors)
         , ("clampRGB is idempotent", all (\color -> clampRGB (clampRGB color) == clampRGB color) sampleColors)

@@ -6,6 +6,7 @@ module HastellColor.Brush.OilPastel
   ) where
 
 import HastellColor.Color (RGB (..), blendRGB, clampRGB)
+import qualified HastellColor.Brush.Kernel as Kernel
 import HastellColor.Paper (Paper (..), PaperCell (..), PaperSettings (..), surfaceHeights)
 import HastellColor.Stroke (Point (..), Stroke (..), StrokeSample (..), interpolateSample)
 
@@ -65,15 +66,14 @@ drawStroke pastel state (Stroke samples) paper
       [sample] -> [(sample, sample)]
       _ -> zip samples (drop 1 samples)
     requests =
-      [ (1 - cellPigmentAmount cell) * contactAt position heightAtCell
+      [ Kernel.depositAmount (cellPigmentAmount cell) (contactAt position heightAtCell)
       | (index, cell, heightAtCell) <- zip3 [0 :: Int ..] cells (surfaceHeights paper)
       , let position = Point (fromIntegral (index `mod` width) + 0.5)
                              (fromIntegral (index `div` width) + 0.5)
       ]
     contactAt position heightAtCell = foldl' max 0
       [ let (edge, pressure) = segmentContact radius position start end
-            grainContact = clampUnit ((heightAtCell + 1.05 * pressure - 1) / 0.45)
-         in 0.75 * pressure * edge * grainContact
+         in Kernel.grainContact heightAtCell pressure edge
       | (start, end) <- segments
       ]
     requested = foldl' (+) 0 requests
@@ -112,10 +112,9 @@ segmentContact radius (Point x y) start end = (edge, samplePressure contact)
     Point closestX closestY = samplePosition contact
     (u, v) = local contact (x - closestX, y - closestY)
     edge = clampUnit ((1 - sqrt (u * u + v * v)) * minorRadius contact)
-    lean sample = if sampleAltitude sample == pi / 2 then 0 else cos (sampleAltitude sample)
-    baseRadius sample = radius * (0.55 + 0.45 * samplePressure sample)
-    minorRadius sample = baseRadius sample * (1 + 0.4 * lean sample)
-    majorRadius sample = baseRadius sample * (1 + 2 * lean sample)
+    baseRadius sample = Kernel.baseRadius radius (samplePressure sample)
+    minorRadius sample = Kernel.minorRadius radius (samplePressure sample) (sampleAltitude sample)
+    majorRadius sample = Kernel.majorRadius radius (samplePressure sample) (sampleAltitude sample)
     local sample (offsetX, offsetY)
       | sampleAltitude sample == pi / 2 = (offsetX / baseRadius sample, offsetY / baseRadius sample)
       | otherwise =

@@ -33,3 +33,12 @@
 !.env.example
 !.env.sample
 !.env.template
+
+# Apple build output and per-user Xcode state
+/apple/build/
+/apple/build-device/
+/apple/.build/
+xcuserdata/
+*.xcuserstate
+
+/apple/build-catalyst/
