@@ -1,0 +1,35 @@
+/dist-newstyle/
+/.ghc.environment.*
+/hastellcolor.ppm
+/hastellcolor-comparison.ppm
+
+# Cabal and Stack build output and local settings
+/dist/
+/.stack-work/
+/cabal.project.local
+/cabal.project.local.*
+
+# GHC compilation and profiling output
+*.o
+*.hi
+*.dyn_o
+*.dyn_hi
+*.p_o
+*.p_hi
+*.hie
+*.prof
+*.hp
+*.eventlog
+
+# macOS metadata and editor temporary files
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Local environment secrets (sanitized examples may be committed)
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
