@@ -28,10 +28,27 @@ struct PaperColorControls: View {
     }
 }
 
+struct PaperGrainControls: View {
+    @Binding var grain: PaperGrain
+    var includeLegacy = false
+    var body: some View {
+        Section("紙目") {
+            Picker("紙目", selection: $grain) {
+                ForEach(PaperGrain.allCases.filter { includeLegacy || $0 != .legacy }, id: \.self) {
+                    Text($0.label).tag($0)
+                }
+            }.pickerStyle(.segmented).accessibilityIdentifier("paperGrain")
+            Text("粗は凹凸が大きく深く、細は滑らかに色が付きます。変更は描いた線にも反映され、取り消せます。")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct NewPaperSheet: View {
     @ObservedObject var store: DrawingStore
     @State private var draft = PaperDraft()
     @State private var color = InkColor.white
+    @State private var grain: PaperGrain = .medium
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
@@ -69,6 +86,7 @@ struct NewPaperSheet: View {
                     Text("mmからpxへの換算では端数を丸めます。mm表示は実際の画素数とdpiから計算した値です。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                PaperGrainControls(grain: $grain, includeLegacy: store.drawing.grain == .legacy)
                 PaperColorControls(color: $color)
                 Section {
                     Text("今の作品に線がある場合は、自動保存と同じ場所に控えを残してから新しい用紙に切り替えます。")
@@ -81,7 +99,7 @@ struct NewPaperSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("作成") {
                         if let size = draft.size {
-                            store.newDrawing(size: size, paperColor: color)
+                            store.newDrawing(size: size, paperColor: color, grain: grain)
                             dismiss()
                         }
                     }.disabled(draft.size == nil).accessibilityIdentifier("createPaper")
@@ -104,10 +122,12 @@ struct NewPaperSheet: View {
 struct PaperSettingsSheet: View {
     @ObservedObject var store: DrawingStore
     @State private var color: InkColor
+    @State private var grain: PaperGrain
     @Environment(\.dismiss) private var dismiss
     init(store: DrawingStore) {
         self.store = store
         _color = State(initialValue: store.drawing.paperColor)
+        _grain = State(initialValue: store.drawing.grain)
     }
     var body: some View {
         NavigationStack {
@@ -118,13 +138,14 @@ struct PaperSettingsSheet: View {
                     Text("別のサイズで描くには、ファイルから「新しい用紙」を選んでください。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                PaperGrainControls(grain: $grain, includeLegacy: store.drawing.grain == .legacy)
                 PaperColorControls(color: $color)
             }
             .navigationTitle("用紙の設定").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("キャンセル") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("適用") { store.setPaperColor(color); dismiss() }.accessibilityIdentifier("applyPaperColor")
+                    Button("適用") { store.setPaper(color: color, grain: grain); dismiss() }.accessibilityIdentifier("applyPaperColor")
                 }
             }
         }

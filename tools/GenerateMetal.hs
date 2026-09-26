@@ -1,6 +1,8 @@
 module Main (main) where
 
 import HastellColor.Brush.Kernel (metalFunctions)
+import HastellColor.Brush.Rubbing (RubTool (..), rubStep, rubMetalSettings)
+import HastellColor.Grain (Grain (..), makeGrainedPaper, grainMetalSettings)
 import HastellColor.Brush.OilPastel (OilPastel (..), PastelState (..), drawStroke)
 import HastellColor.Color (RGB (..), white)
 import HastellColor.Paper (Paper (..), PaperSettings (..), PaperCell (..), makePaper)
@@ -14,7 +16,7 @@ main :: IO ()
 main = do
   args <- getArgs
   template <- readFile "metal/Paint.metal.in"
-  let source = metalFunctions ++ "\n" ++ template
+  let source = metalFunctions ++ grainMetalSettings ++ rubMetalSettings ++ "\n" ++ template
       path = "apple/HastellColor/Generated/Paint.metal"
   case args of
     [] -> writeFile path source
@@ -23,6 +25,7 @@ main = do
       if current == source then putStrLn "Metal source is up to date."
         else die "Metal source is stale. Run: cabal run hastellcolor-metal"
     ["--fixtures", output] -> either die (writeFile output) referenceFixtures
+    ["--material-fixtures", output] -> either die (writeFile output) materialFixtures
     _ -> die "Usage: cabal run hastellcolor-metal [-- --check | --fixtures PATH] (from repository root)"
 
 -- GPU tests compare the complete pigment state, not just a screenshot. The
@@ -61,3 +64,32 @@ referenceFixtures = do
       pure ("{\"name\":" ++ show name ++ ",\"colors\":" ++ show (map (rgb . fst) strokes)
         ++ ",\"samples\":" ++ show (map (map sample . snd) strokes)
         ++ ",\"pixels\":" ++ show (concatMap cell (paperCells final)) ++ "}")
+
+-- Small reference papers isolate grain scale and conservative pigment transport.
+materialFixtures :: Either String String
+materialFixtures = do
+  grainCases <- mapM grainCase [Coarse, Medium, Fine]
+  rubCases <- mapM rubCase [Finger, Stump, Silicone, Kneaded]
+  pure ("[" ++ intercalate "," (grainCases ++ rubCases) ++ "]\n")
+  where
+    settings = PaperSettings 32 24 white 0.9 42
+    point x y = uprightSample (Point x y) 0.8
+    draw color samples paper = fst <$> drawStroke (OilPastel color 4.5 1e30) (PastelState 1 0) (Stroke samples) paper
+    blank = makeGrainedPaper Medium 300 settings
+    painted paper = draw (RGB 0.85 0.045 0.018) [point 8 4, point 8 20] paper
+      >>= draw (RGB 0.035 0.07 0.65) [point 17 4, point 17 20]
+    encode name grain tool initial final =
+      let rgb (RGB r g b) = [r,g,b]
+          cell c = rgb (cellPigmentColor c) ++ [cellPigmentAmount c]
+       in "{\"name\":" ++ show name ++ ",\"grain\":" ++ show (fromEnum grain)
+          ++ ",\"tool\":" ++ show tool ++ ",\"initial\":" ++ show (concatMap cell (paperCells initial))
+          ++ ",\"pixels\":" ++ show (concatMap cell (paperCells final)) ++ "}"
+    grainCase grain = do
+      paper <- makeGrainedPaper grain 300 settings
+      final <- painted paper
+      pure (encode (show grain) grain (0 :: Int) paper final)
+    rubCase tool = do
+      initial <- blank >>= painted
+      final <- if tool == Kneaded then rubStep tool 6 1 (point 12 12) (0,0) initial
+        else foldM (\paper x -> rubStep tool 6 1 (point x 12) (1,0) paper) initial [6..25]
+      pure (encode (show tool) Medium (fromEnum tool + 1) initial final)

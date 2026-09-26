@@ -8,6 +8,29 @@ float hcGrainContact(float h, float p, float e) { return (((0.75f * p) * e) * sa
 float hcStrokeContact(float c, float p) { return saturate((c * p)); }
 float hcDeposit(float m, float c) { return ((1.0f - m) * c); }
 float hcSurface(float h, float m, float n) { return (h + ((1.0f - h) * saturate(((0.65f * m) + (1.6f * n))))); }
+float hcPaperRelief(float e, float c, float r) { return (1.0f - (r * ((0.8f * e) + (0.2f * c)))); }
+float hcRubContact(float h, float p, float e, float s) { return ((saturate((p * s)) * e) * (0.3f + (0.7f * h))); }
+float hcTransfer(float m, float n, float c, float s) { return (((m * (1.0f - n)) * c) * s); }
+float hcExchange(float m, float n, float c, float s) { return (((((m + n) - abs((m - n))) / 2.0f) * c) * s); }
+float hcLift(float h, float p, float e, float s) { return (((0.45f * saturate((p * s))) * e) * (0.25f + (0.75f * h))); }
+float2 hcGrainSettings(uint kind, float dpi) {
+    switch (kind) {
+    case 0u: return float2(8.466666666666667e-2f * dpi / 25.4f, 0.9f);
+    case 1u: return float2(0.35f * dpi / 25.4f, 0.95f);
+    case 2u: return float2(0.17f * dpi / 25.4f, 0.7f);
+    case 3u: return float2(8.0e-2f * dpi / 25.4f, 0.45f);
+    default: return float2(1, 0.9f);
+    }
+}
+float4 hcRubSettings(uint kind) {
+    switch (kind) {
+    case 1u: return float4(1.3f, 0.65f, 0.42f, 0.22f);
+    case 2u: return float4(0.55f, 0.3f, 0.65f, 0.1f);
+    case 3u: return float4(1.0f, 0.15f, 0.82f, 3.0e-2f);
+    case 4u: return float4(1.1f, 0.8f, 0.0f, 0.0f);
+    default: return float4(1, 1, 0, 0);
+    }
+}
 
 // GPU execution of the CPU reference sweep. Coordinates are paper pixels,
 // top-left origin. Pigment RGB and coverage are stored in RGBA16Float.
@@ -15,6 +38,7 @@ struct Sample { float4 pointPressureAltitude; float4 azimuthPadding; };
 struct Parameters {
     float4 colorRadius;
     float4 controls; // pigment strength
+    float4 paper; // grain kind, dpi
     uint4 region; // origin x/y, width/height
     uint4 counts; // sample count, canvas width/height, eraser
 };
@@ -28,7 +52,18 @@ uint grainHash(uint value) {
 float noiseAt(uint2 p) {
     return float(grainHash(42u + p.x * 374761393u + p.y * 668265263u)) / 4294967295.0f;
 }
-float paperHeight(uint2 p) { return 1.0f - 0.9f * (0.8f * noiseAt(p) + 0.2f * noiseAt(p / 4)); }
+float smoothNoise(float2 p) {
+    uint2 cell = uint2(floor(p));
+    float2 t = fract(p); t = t * t * (3 - 2 * t);
+    return mix(mix(noiseAt(cell), noiseAt(cell + uint2(1, 0)), t.x),
+               mix(noiseAt(cell + uint2(0, 1)), noiseAt(cell + uint2(1, 1)), t.x), t.y);
+}
+float paperHeight(uint2 p, float4 paper) {
+    if (paper.x == 0) return hcPaperRelief(noiseAt(p), noiseAt(p / 4), 0.9f);
+    float2 settings = hcGrainSettings(uint(paper.x), paper.y);
+    float2 uv = (float2(p) + 0.5f) / settings.x;
+    return hcPaperRelief(smoothNoise(uv), smoothNoise(uv / 4), settings.y);
+}
 
 float projection(float2 offset, float2 delta) {
     float lengthSquared = dot(delta, delta);
@@ -58,6 +93,13 @@ float2 segmentContact(float2 point, Sample a, Sample b, float radius) {
     return float2(saturate((1 - distance) * hcMinorRadius(radius,
         s.pointPressureAltitude.z, s.pointPressureAltitude.w)), s.pointPressureAltitude.z);
 }
+float2 liftingHit(float2 point, Sample a, Sample b, float radius) {
+    float t = projection(point - a.pointPressureAltitude.xy, b.pointPressureAltitude.xy - a.pointPressureAltitude.xy);
+    Sample s = interpolate(a, b, t);
+    float4 settings = hcRubSettings(4);
+    float distance = length(point - s.pointPressureAltitude.xy) / (radius * settings.x);
+    return float2(saturate((1 - distance) / settings.y), s.pointPressureAltitude.z);
+}
 
 kernel void clearCanvas(texture2d<float, access::write> image [[texture(0)]], uint2 p [[thread_position_in_grid]]) {
     if (p.x < image.get_width() && p.y < image.get_height()) image.write(float4(0), p);
@@ -78,11 +120,15 @@ kernel void paint(texture2d<float, access::read> base [[texture(0)]],
         if ((x || y) && all(q >= 0) && q.x < int(params.counts.y) && q.y < int(params.counts.z))
             nearby += base.read(uint2(q)).a / 8.0f;
     }
-    float surface = hcSurface(paperHeight(p), cell.a, nearby);
+    float surface = hcSurface(paperHeight(p, params.paper), cell.a, nearby);
     float maximum = contact.read(p).r;
     for (uint i = 0; i + 1 < params.counts.x; ++i) {
-        float2 hit = segmentContact(float2(p) + 0.5f, samples[i], samples[i + 1], params.colorRadius.w);
-        float amount = params.counts.w ? hit.x * hit.y : hcStrokeContact(hcGrainContact(surface, hit.y, hit.x), params.controls.x);
+        float2 hit = params.counts.w == 2
+            ? liftingHit(float2(p) + 0.5f, samples[i], samples[i + 1], params.colorRadius.w)
+            : segmentContact(float2(p) + 0.5f, samples[i], samples[i + 1], params.colorRadius.w);
+        float amount = params.counts.w == 2 ? hcLift(surface, hit.y, hit.x, params.controls.x)
+            : params.counts.w == 1 ? hit.x * hit.y
+            : hcStrokeContact(hcGrainContact(surface, hit.y, hit.x), params.controls.x);
         maximum = max(maximum, amount);
     }
     contact.write(float4(maximum), p);
@@ -93,6 +139,69 @@ kernel void paint(texture2d<float, access::read> base [[texture(0)]],
         float3 color = total > 0 ? (cell.rgb * cell.a + params.colorRadius.rgb * amount) / total : cell.rgb;
         result.write(float4(color, total), p);
     }
+}
+
+// Each step reads one immutable pigment state. Signed donor flux and symmetric
+// exchanges preserve pigment and premultiplied colour, including at paper edges.
+struct RubParameters {
+    float4 center; // x, y, pressure, altitude
+    float4 motion; // dx, dy, azimuth, radius
+    float4 controls; // tool kind, strength, grain kind, dpi
+    uint4 region;
+};
+bool onPaper(int2 p, texture2d<float, access::read> image) {
+    return all(p >= 0) && p.x < int(image.get_width()) && p.y < int(image.get_height());
+}
+float rubbingWeight(int2 p, texture2d<float, access::read> image,
+                    constant RubParameters &params, float4 settings) {
+    float2 offset = float2(p) + 0.5f - params.center.xy;
+    float radius = params.motion.w * settings.x;
+    Sample s = {params.center, float4(params.motion.z, 0, 0, 0)};
+    float distance = params.controls.x == 1 ? length(offset) / radius : length(localOffset(offset, s, radius));
+    float edge = saturate((1 - distance) / settings.y);
+    if (edge == 0) return 0;
+    float nearby = 0;
+    for (int y = -1; y <= 1; ++y) for (int x = -1; x <= 1; ++x) {
+        int2 q = p + int2(x,y);
+        if ((x || y) && onPaper(q, image)) nearby += image.read(uint2(q)).a / 8;
+    }
+    float h = hcSurface(paperHeight(uint2(p), float4(params.controls.zw, 0, 0)), image.read(uint2(p)).a, nearby);
+    return hcRubContact(h, params.center.z, edge, params.controls.y);
+}
+kernel void rub(texture2d<float, access::read> image [[texture(0)]],
+                texture2d<float, access::write> result [[texture(1)]],
+                constant RubParameters &params [[buffer(0)]], uint2 gid [[thread_position_in_grid]]) {
+    if (gid.x >= params.region.z || gid.y >= params.region.w) return;
+    int2 p = int2(gid + params.region.xy);
+    float4 cell = image.read(uint2(p));
+    float4 total = float4(cell.rgb * cell.a, cell.a);
+    float4 settings = hcRubSettings(uint(params.controls.x));
+    float weight = rubbingWeight(p, image, params, settings);
+    float denominator = abs(params.motion.x) + abs(params.motion.y);
+    for (uint axis = 0; axis < 2; ++axis) {
+        float portion = denominator > 0 ? abs(params.motion[axis]) / denominator : 0;
+        if (portion == 0) continue;
+        int2 step = int2(0); step[axis] = params.motion[axis] > 0 ? 1 : -1;
+        for (int direction = -1; direction <= 1; direction += 2) {
+            int2 q = p + step * direction;
+            if (!onPaper(q, image)) continue;
+            float4 other = image.read(uint2(q));
+            float neighbourWeight = rubbingWeight(q, image, params, settings);
+            float exchange = portion * hcExchange(cell.a, other.a, min(weight, neighbourWeight), settings.w);
+            total.rgb += (other.rgb - cell.rgb) * exchange;
+            if (direction == 1) {
+                float moved = portion * hcTransfer(cell.a, other.a, weight, settings.z);
+                total -= float4(cell.rgb, 1) * moved;
+            } else {
+                float moved = portion * hcTransfer(other.a, cell.a, neighbourWeight, settings.z);
+                total += float4(other.rgb, 1) * moved;
+            }
+        }
+    }
+    // Round once in arithmetic before the texture store. Native texture-write
+    // conversion can truncate on some GPUs, biasing repeated transport darker.
+    half4 rounded = half4(total.a > 0 ? saturate(total.rgb / total.a) : float3(0), saturate(total.a));
+    result.write(float4(rounded), uint2(p));
 }
 
 struct VertexOut { float4 position [[position]]; float2 uv; };

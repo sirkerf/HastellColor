@@ -59,10 +59,11 @@ struct PaintStroke: Codable, Identifiable, Equatable {
     var eraser: Bool
     var samples: [PencilSample]
     var strength: Float = 1
+    var rubbing: RubbingTool? = nil
 }
 
 extension PaintStroke {
-    enum CodingKeys: String, CodingKey { case id, color, radius, eraser, samples, strength }
+    enum CodingKeys: String, CodingKey { case id, color, radius, eraser, samples, strength, rubbing }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -71,26 +72,29 @@ extension PaintStroke {
         eraser = try c.decode(Bool.self, forKey: .eraser)
         samples = try c.decode([PencilSample].self, forKey: .samples)
         strength = try c.decodeIfPresent(Float.self, forKey: .strength) ?? 1
+        rubbing = try c.decodeIfPresent(RubbingTool.self, forKey: .rubbing)
     }
 }
 
 struct Drawing: Codable, Equatable {
-    var version = 2
+    var version = 3
     var colorSpace = "linear-display-p3"
     var width = 1536
     var height = 2048
     var strokes: [PaintStroke] = []
     var dpi: Double = 300
     var paperColor: InkColor = .white
+    var grain: PaperGrain = .medium
     var size: PaperSize { PaperSize(width: width, height: height, dpi: dpi) }
 
     func validated() throws -> Drawing {
-        guard version == 2, colorSpace == "linear-display-p3", size.valid, paperColor.valid,
+        guard version == 3, colorSpace == "linear-display-p3", size.valid, paperColor.valid,
               strokes.count <= 10_000, Set(strokes.map(\.id)).count == strokes.count,
               strokes.reduce(0, { $0 + $1.samples.count }) <= 500_000,
               strokes.allSatisfy({ stroke in
                   stroke.color.valid && stroke.radius.isFinite && (1...100).contains(stroke.radius)
                       && stroke.strength.isFinite && (0.25...2.5).contains(stroke.strength)
+                      && !(stroke.eraser && stroke.rubbing != nil)
                       && !stroke.samples.isEmpty && stroke.samples.allSatisfy(\.valid)
               }) else { throw DrawingError.invalidDocument }
         return self
@@ -108,12 +112,12 @@ struct Drawing: Codable, Equatable {
 }
 
 extension Drawing {
-    enum CodingKeys: String, CodingKey { case version, colorSpace, width, height, strokes, dpi, paperColor }
+    enum CodingKeys: String, CodingKey { case version, colorSpace, width, height, strokes, dpi, paperColor, grain }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let format = try c.decode(Int.self, forKey: .version)
-        guard format == 1 || format == 2 else { throw DrawingError.invalidDocument }
-        version = 2
+        guard (1...3).contains(format) else { throw DrawingError.invalidDocument }
+        version = 3
         colorSpace = try c.decode(String.self, forKey: .colorSpace)
         width = try c.decode(Int.self, forKey: .width)
         height = try c.decode(Int.self, forKey: .height)
@@ -121,6 +125,56 @@ extension Drawing {
         // Old drawings were white and had no physical resolution metadata.
         dpi = format == 1 ? 300 : try c.decode(Double.self, forKey: .dpi)
         paperColor = format == 1 ? .white : try c.decode(InkColor.self, forKey: .paperColor)
+        grain = format < 3 ? .legacy : try c.decode(PaperGrain.self, forKey: .grain)
+    }
+}
+
+enum RubbingTool: String, Codable, CaseIterable {
+    case finger, stump, silicone, kneaded
+    var metalIndex: UInt32 {
+        switch self { case .finger: return 1; case .stump: return 2; case .silicone: return 3; case .kneaded: return 4 }
+    }
+}
+
+enum DrawingTool: String, CaseIterable {
+    case pastel = "パステル", eraser = "消しゴム", finger = "指", stump = "擦筆", silicone = "シリコン", kneaded = "練り消し"
+    var rubbing: RubbingTool? {
+        switch self {
+        case .pastel, .eraser: return nil
+        case .finger: return .finger
+        case .stump: return .stump
+        case .silicone: return .silicone
+        case .kneaded: return .kneaded
+        }
+    }
+}
+
+// Fixed one-pixel arc-length steps make smudging independent of event batching.
+struct RubPathSampler {
+    private var previous: PencilSample?
+    private var lastStep: PencilSample?
+    private var remaining: Double = 1
+
+    mutating func append(_ sample: PencilSample, emit: (PencilSample, SIMD2<Float>) throws -> Void) rethrows {
+        guard let previous else { self.previous = sample; lastStep = sample; return }
+        let dx = Double(sample.x) - Double(previous.x), dy = Double(sample.y) - Double(previous.y)
+        let distance = hypot(dx, dy)
+        guard distance > 0 else { self.previous = sample; return }
+        var position = remaining
+        while position <= distance + 0.0000001 {
+            let t = Float(min(1, position / distance))
+            let angle = sample.azimuth - previous.azimuth
+            let point = PencilSample(x: previous.x + Float(dx) * t, y: previous.y + Float(dy) * t,
+                pressure: previous.pressure + (sample.pressure - previous.pressure) * t,
+                altitude: previous.altitude + (sample.altitude - previous.altitude) * t,
+                azimuth: previous.azimuth + atan2(sin(angle), cos(angle)) * t)
+            let old = lastStep ?? previous
+            try emit(point, SIMD2(point.x - old.x, point.y - old.y))
+            lastStep = point
+            position += 1
+        }
+        remaining = position - distance
+        self.previous = sample
     }
 }
 

@@ -88,6 +88,7 @@ final class PencilMetalView: MTKView, MTKViewDelegate {
         }
         painter?.paperColor = store.drawing.paperColor
         painter?.dpi = store.drawing.dpi
+        painter?.grain = store.drawing.grain
         if revision != store.revision { rebuild = true }
         setNeedsDisplay()
     }
@@ -127,7 +128,7 @@ final class PencilMetalView: MTKView, MTKViewDelegate {
             revision = store.revision
         }
         if let active, active.samples.count > renderedCount {
-            if renderedCount == 0 { try painter.beginStroke() }
+            if renderedCount == 0 { try painter.beginStroke(rubbing: active.rubbing) }
             for start in stride(from: renderedCount, to: active.samples.count, by: 64) {
                 let end = min(active.samples.count, start + 64)
                 try painter.append(Array(active.samples[max(0, start - 1)..<end]), stroke: active)
@@ -171,14 +172,16 @@ final class PencilMetalView: MTKView, MTKViewDelegate {
         if let pencil = touches.first(where: { $0.type == .pencil }), activeTouch?.type != .pencil {
             if active != nil { cancelStroke() }
             start(pencil, event: event)
-        } else if activeTouch == nil, store.fingerDrawing, let touch = touches.first {
+        } else if activeTouch == nil, (store.fingerDrawing || store.fingerSmudging), let touch = touches.first {
             start(touch, event: event)
         }
     }
 
     private func start(_ touch: UITouch, event: UIEvent?) {
         activeTouch = touch
-        active = PaintStroke(color: store.color, radius: Float(store.radius), eraser: store.eraser, samples: [], strength: Float(store.strength))
+        let tool: DrawingTool = touch.type == .direct && store.fingerSmudging ? .finger : store.tool
+        active = PaintStroke(color: store.color, radius: Float(store.radius), eraser: tool == .eraser,
+            samples: [], strength: Float(store.strength), rubbing: tool.rubbing)
         renderedCount = 0
         store.isDrawing = true
         append(touch, event: event)

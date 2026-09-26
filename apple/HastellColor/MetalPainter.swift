@@ -15,9 +15,12 @@ final class MetalPainter {
     private let base: MTLTexture
     private let contact: MTLTexture
     private let paintPipeline: MTLComputePipelineState
+    private let rubPipeline: MTLComputePipelineState
     private let clearPipeline: MTLComputePipelineState
     var paperColor: InkColor = .white
     var dpi: Double = 300
+    var grain: PaperGrain = .legacy
+    private var rubSampler = RubPathSampler()
     var onError: ((String) -> Void)?
 
     init(width: Int, height: Int, device: MTLDevice, library: MTLLibrary) throws {
@@ -27,11 +30,13 @@ final class MetalPainter {
         self.height = height
         guard let queue = device.makeCommandQueue(),
               let paint = library.makeFunction(name: "paint"),
+              let rub = library.makeFunction(name: "rub"),
               let clear = library.makeFunction(name: "clearCanvas") else {
             throw DrawingError.resource("Metalの描画プログラムを読み込めませんでした。")
         }
         self.queue = queue
         paintPipeline = try device.makeComputePipelineState(function: paint)
+        rubPipeline = try device.makeComputePipelineState(function: rub)
         clearPipeline = try device.makeComputePipelineState(function: clear)
         func texture(_ format: MTLPixelFormat) throws -> MTLTexture {
             let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format,
@@ -75,7 +80,9 @@ final class MetalPainter {
         buffer.commit()
     }
 
-    func beginStroke() throws {
+    func beginStroke(rubbing: RubbingTool? = nil) throws {
+        rubSampler = RubPathSampler()
+        if let rubbing, rubbing != .kneaded { return }
         let buffer = try command()
         guard let blit = buffer.makeBlitCommandEncoder() else { throw DrawingError.metalUnavailable }
         blit.copy(from: image, to: base)
@@ -88,6 +95,10 @@ final class MetalPainter {
     // complete stroke, so coalesced input doesn't darken a stroke by overdraw.
     func append(_ samples: [PencilSample], stroke: PaintStroke) throws {
         guard !samples.isEmpty else { return }
+        if let rubbing = stroke.rubbing, rubbing != .kneaded {
+            try appendRubbing(samples, stroke: stroke, tool: rubbing)
+            return
+        }
         let points = samples.count == 1 ? [samples[0], samples[0]] : samples
         let margin = stroke.radius * 3 + 2
         let x0 = max(0, min(width, Int(floor(points.map(\.x).min()! - margin))))
@@ -104,13 +115,15 @@ final class MetalPainter {
         struct Parameters {
             var colorRadius: SIMD4<Float>
             var controls: SIMD4<Float>
+            var paper: SIMD4<Float>
             var region: SIMD4<UInt32>
             var counts: SIMD4<UInt32>
         }
         var params = Parameters(colorRadius: SIMD4(stroke.color.red, stroke.color.green, stroke.color.blue, stroke.radius),
             controls: SIMD4(stroke.strength, 0, 0, 0),
+            paper: SIMD4(Float(grain.metalIndex), Float(dpi), 0, 0),
             region: SIMD4(UInt32(x0), UInt32(y0), UInt32(x1 - x0), UInt32(y1 - y0)),
-            counts: SIMD4(UInt32(points.count), UInt32(width), UInt32(height), stroke.eraser ? 1 : 0))
+            counts: SIMD4(UInt32(points.count), UInt32(width), UInt32(height), stroke.rubbing == .kneaded ? 2 : stroke.eraser ? 1 : 0))
         let buffer = try command()
         guard let encoder = buffer.makeComputeCommandEncoder() else { throw DrawingError.metalUnavailable }
         encoder.setComputePipelineState(paintPipeline)
@@ -125,10 +138,53 @@ final class MetalPainter {
         buffer.commit()
     }
 
+    private func appendRubbing(_ samples: [PencilSample], stroke: PaintStroke, tool: RubbingTool) throws {
+        var sampler = rubSampler
+        defer { rubSampler = sampler }
+        var buffer = try command()
+        var steps = 0
+        for point in samples {
+            try sampler.append(point) { sample, delta in
+                let margin = stroke.radius * 4 + 3
+                let x0 = max(0, min(width, Int(floor(sample.x - margin))))
+                let y0 = max(0, min(height, Int(floor(sample.y - margin))))
+                let x1 = max(0, min(width, Int(ceil(sample.x + margin))))
+                let y1 = max(0, min(height, Int(ceil(sample.y + margin))))
+                guard x1 > x0, y1 > y0 else { return }
+                struct Parameters {
+                    var center: SIMD4<Float>
+                    var motion: SIMD4<Float>
+                    var controls: SIMD4<Float>
+                    var region: SIMD4<UInt32>
+                }
+                var params = Parameters(center: SIMD4(sample.x, sample.y, sample.pressure, sample.altitude),
+                    motion: SIMD4(delta.x, delta.y, sample.azimuth, stroke.radius),
+                    controls: SIMD4(Float(tool.metalIndex), stroke.strength, Float(grain.metalIndex), Float(dpi)),
+                    region: SIMD4(UInt32(x0), UInt32(y0), UInt32(x1 - x0), UInt32(y1 - y0)))
+                guard let encoder = buffer.makeComputeCommandEncoder() else { throw DrawingError.metalUnavailable }
+                encoder.setComputePipelineState(rubPipeline)
+                encoder.setTexture(image, index: 0)
+                encoder.setTexture(base, index: 1)
+                encoder.setBytes(&params, length: MemoryLayout<Parameters>.stride, index: 0)
+                let origin = MTLOrigin(x: x0, y: y0, z: 0)
+                let size = MTLSize(width: x1-x0, height: y1-y0, depth: 1)
+                encoder.dispatchThreads(size, threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+                encoder.endEncoding()
+                guard let blit = buffer.makeBlitCommandEncoder() else { throw DrawingError.metalUnavailable }
+                blit.copy(from: base, sourceSlice: 0, sourceLevel: 0, sourceOrigin: origin, sourceSize: size,
+                    to: image, destinationSlice: 0, destinationLevel: 0, destinationOrigin: origin)
+                blit.endEncoding()
+                steps += 1
+                if steps == 32 { buffer.commit(); buffer = try command(); steps = 0 }
+            }
+        }
+        buffer.commit()
+    }
+
     func replay(_ strokes: [PaintStroke]) throws {
         try reset()
         for stroke in strokes {
-            try beginStroke()
+            try beginStroke(rubbing: stroke.rubbing)
             // Bound GPU work per dispatch; maintain the predecessor across batches.
             for start in stride(from: 0, to: stroke.samples.count, by: 64) {
                 let lower = max(0, start - 1)

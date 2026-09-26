@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Control.Monad (unless)
+import Control.Monad (unless, foldM)
 import Data.Either (isLeft)
 import Data.List (transpose)
 import HastellColor.Brush.OilPastel (OilPastel (..), PastelState (..), drawStroke)
@@ -9,6 +9,8 @@ import HastellColor.Image.PPM (encodePPM, encodeRGBRows)
 import HastellColor.Paper (Paper (..), PaperCell (..), PaperSettings (..), makePaper, visibleColor, surfaceHeights)
 import HastellColor.Stroke (Point (..), Stroke (..), StrokeSample (..), uprightSample, interpolateSample)
 import qualified HastellColor.Brush.Kernel as Kernel
+import qualified HastellColor.Grain as Grain
+import qualified HastellColor.Brush.Rubbing as Rub
 import qualified Scenes
 import System.Exit (die, exitFailure)
 
@@ -43,8 +45,37 @@ main = do
   bareValley <- render pastel fresh (Stroke [sample 1.5 1.5 0.2]) valleyPaper
   bridgedValley <- render pastel fresh (Stroke [sample 1.5 1.5 0.2]) bridgedPaper
   comparisons <- either die pure Scenes.renderComparisons
-  let checks =
-        [ ("stroke strength preserves zero contact and identity",
+  grained <- mapM (either die pure . (\g -> Grain.makeGrainedPaper g 300 settings)) [Grain.Coarse, Grain.Medium, Grain.Fine]
+  layeredGrain <- mapM (\p -> do
+    first <- render pastel fresh (line 0.6) p
+    second <- render pastel fresh (line 0.6) (fst first)
+    pure (p, fst first, fst second)) grained
+  rubbed <- mapM (\tool -> either die pure (foldM
+    (\p x -> Rub.rubStep tool 8 1 (sample x 12 0.8) (1,0) p) (fst blueCoat) [6..24]))
+    [Rub.Finger, Rub.Stump, Rub.Silicone]
+  lifted <- either die pure (Rub.rubStep Rub.Kneaded 8 1 (sample 16 12 0.8) (0,0) (fst blueCoat))
+  let componentMass channel = sum . map (\c -> cellPigmentAmount c * channel (cellPigmentColor c)) . paperCells
+      checks =
+        [ ("paper presets have distinct bounded grain",
+            all (\p -> all (\c -> cellHeight c >= 0 && cellHeight c <= 1) (paperCells p)) grained
+            && and (zipWith (/=) grained (drop 1 grained)))
+        , ("legacy grain preserves old paper", Grain.makeGrainedPaper Grain.Legacy 300 settings == Right paper)
+        , ("every grain accumulates pigment and raises its contact surface",
+            all (\(blank,first,second) -> pigment second > pigment first && pigment first > 0
+              && sum (surfaceHeights second) > sum (surfaceHeights blank)) layeredGrain)
+        , ("rubbing conserves pigment", all (near (pigment (fst blueCoat)) . pigment) rubbed)
+        , ("rubbing conserves pigment colour mass",
+            and [near (componentMass channel p) (componentMass channel (fst blueCoat)) | p <- rubbed, channel <- [red,green,blue]])
+        , ("rubbing keeps paper geometry and bounded pigment", all (\p -> validPigment p
+            && map cellHeight (paperCells p) == map cellHeight (paperCells (fst blueCoat))) rubbed)
+        , ("rubbing tools have distinct effects", and (zipWith (/=) rubbed (drop 1 rubbed)))
+        , ("kneaded eraser lifts pigment", pigment lifted < pigment (fst blueCoat) && validPigment lifted)
+        , ("rubbing blank paper never creates pigment", all (\tool -> Rub.rubStep tool 8 1 (sample 16 12 0.8) (1,0) paper == Right paper)
+            [Rub.Finger, Rub.Stump, Rub.Silicone, Rub.Kneaded])
+        , ("zero-pressure rubbing does nothing", all (\tool -> fmap (nearPaper (fst blueCoat))
+            (Rub.rubStep tool 8 1 (sample 16 12 0) (1,0) (fst blueCoat)) == Right True)
+            [Rub.Finger, Rub.Stump, Rub.Silicone, Rub.Kneaded])
+        , ("stroke strength preserves zero contact and identity",
             all (\c -> Kernel.strokeContact c 1 == c && Kernel.strokeContact 0 c == (0 :: Double)) [0, 0.1, 0.5, 1])
         , ("stroke strength is monotone and bounded",
             all (\c -> let weak = Kernel.strokeContact c 0.25; strong = Kernel.strokeContact c 2.5

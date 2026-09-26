@@ -73,6 +73,8 @@ library
                       HastellColor.Stroke
                       HastellColor.Brush.OilPastel
                       HastellColor.Brush.Kernel
+                      HastellColor.Brush.Rubbing
+                      HastellColor.Grain
                       HastellColor.Image.PPM
     hs-source-dirs:   src
     build-depends:    base ^>=4.21.0.0

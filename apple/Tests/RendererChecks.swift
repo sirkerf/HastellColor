@@ -19,7 +19,7 @@ struct Fixture: Decodable {
 
 @main struct RendererChecks {
     static func main() throws {
-        guard CommandLine.arguments.count == 3 else { fatalError("Provide Metal source and CPU fixtures") }
+        guard CommandLine.arguments.count == 4 else { fatalError("Provide Metal source and CPU fixtures") }
         guard let device = MTLCreateSystemDefaultDevice() else { fatalError("Metal GPU required; tests cannot be skipped") }
         let source = try String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)
         let library = try device.makeLibrary(source: source, options: nil)
@@ -126,7 +126,7 @@ struct Fixture: Decodable {
         var legacyStrokes = legacy["strokes"] as! [[String: Any]]
         legacyStrokes[0].removeValue(forKey: "strength"); legacy["strokes"] = legacyStrokes
         let migrated = try Drawing.decode(JSONSerialization.data(withJSONObject: legacy))
-        check(migrated.version == 2 && migrated.paperColor == .white && migrated.dpi == 300
+        check(migrated.version == 3 && migrated.grain == .legacy && migrated.paperColor == .white && migrated.dpi == 300
             && migrated.strokes[0].strength == 1 && migrated.strokes[0].samples == stroke.samples, "Legacy drawing migration")
         for dpi in [0.0, -300, 1201, .infinity] {
             malformed = preciseDocument; malformed.dpi = dpi
@@ -181,6 +181,7 @@ struct Fixture: Decodable {
             check(info[kCGImagePropertyPixelWidth] as? Int == 4961 && info[kCGImagePropertyPixelHeight] as? Int == 7016,
                 "A4 / 600 dpi GPU canvas or export failed")
         }
+        checks += try checkMaterials(device: device, library: library, fixturePath: CommandLine.arguments[3])
         print("Passed \(checks) Apple renderer/document checks on \(device.name).")
     }
 }

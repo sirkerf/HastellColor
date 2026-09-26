@@ -28,7 +28,12 @@ final class DrawingStore: ObservableObject {
     @Published var color = InkColor.vermilion
     @Published var radius: Double = 14
     @Published var strength: Double = 1
-    @Published var eraser = false
+    @Published var tool: DrawingTool = .pastel
+    var eraser: Bool {
+        get { tool == .eraser }
+        set { tool = newValue ? .eraser : .pastel }
+    }
+    @Published var fingerSmudging = false
     @Published var fingerDrawing = false
     @Published var fixedPressure = false
     @Published var isDrawing = false
@@ -147,11 +152,11 @@ final class DrawingStore: ObservableObject {
         try drawing.encoded().write(to: backup, options: .atomic)
     }
 
-    func newDrawing(size: PaperSize, paperColor: InkColor) {
+    func newDrawing(size: PaperSize, paperColor: InkColor, grain: PaperGrain = .medium) {
         finishInput?()
         do {
             let replacement = try Drawing(width: size.width, height: size.height,
-                dpi: size.dpi, paperColor: paperColor).validated()
+                dpi: size.dpi, paperColor: paperColor, grain: grain).validated()
             try backupCurrent()
             drawing = replacement
             documentID = UUID()
@@ -160,11 +165,12 @@ final class DrawingStore: ObservableObject {
         } catch { self.error = error.localizedDescription }
     }
 
-    func setPaperColor(_ color: InkColor) {
+    func setPaper(color: InkColor, grain: PaperGrain) {
         finishInput?()
-        guard color.valid, drawing.paperColor != color else { return }
+        guard color.valid, drawing.paperColor != color || drawing.grain != grain else { return }
         remember()
         drawing.paperColor = color
+        drawing.grain = grain
         changed()
     }
 
@@ -242,6 +248,7 @@ final class DrawingStore: ObservableObject {
         }
         painter.paperColor = drawing.paperColor
         painter.dpi = drawing.dpi
+        painter.grain = drawing.grain
         try painter.replay(drawing.strokes)
         return DrawingFile(data: try painter.png())
     }

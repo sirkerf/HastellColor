@@ -2,6 +2,55 @@ import XCTest
 
 final class StudioChecks: XCTestCase {
     @MainActor
+    func testGrainAndRubbingTools() throws {
+        let app = XCUIApplication()
+        app.launch()
+        let canvas = app.otherElements["drawingCanvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 15))
+        app.buttons["ファイル"].tap()
+        app.buttons["キャンバスを空にする"].tap()
+        app.buttons["空にする（取り消し可能）"].tap()
+        let paper = app.buttons["paperSettings"]
+        let oldPaper = paper.label
+        paper.tap()
+        app.buttons["粗"].tap()
+        app.buttons["applyPaperColor"].tap()
+        XCTAssertTrue(paper.label.contains("紙目 粗"))
+        app.buttons["取り消す"].tap()
+        XCTAssertEqual(paper.label, oldPaper)
+        app.buttons["やり直す"].tap()
+        XCTAssertTrue(paper.label.contains("紙目 粗"))
+        app.sliders["ブラシの半径"].adjust(toNormalizedSliderPosition: 0.65)
+        app.buttons["朱"].tap()
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.3))
+            .press(forDuration: 0.1, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.7)))
+        app.buttons["青"].tap()
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.3))
+            .press(forDuration: 0.1, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.7)))
+        for (index, name) in ["指", "擦筆", "シリコン", "練り消し"].enumerated() {
+            app.buttons["drawingTool"].tap()
+            app.buttons[name].tap()
+            let y = 0.38 + Double(index) * 0.08
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.26, dy: y))
+                .press(forDuration: 0.1, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: y)))
+            XCTAssertEqual(canvas.value as? String, "\(index + 3)本の線")
+            XCTAssertFalse(app.alerts.firstMatch.exists)
+        }
+        app.buttons["取り消す"].tap()
+        XCTAssertEqual(canvas.value as? String, "5本の線")
+        app.buttons["やり直す"].tap()
+        XCTAssertEqual(canvas.value as? String, "6本の線")
+        XCTAssertTrue(app.staticTexts["保存済み"].waitForExistence(timeout: 15))
+        app.terminate(); app.launch()
+        XCTAssertTrue(canvas.waitForExistence(timeout: 20))
+        XCTAssertEqual(canvas.value as? String, "6本の線")
+        XCTAssertTrue(paper.label.contains("紙目 粗"))
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        let image = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        image.name = "Coarse paper and four rubbing tools"; image.lifetime = .keepAlways; add(image)
+    }
+
+    @MainActor
     func testColorSelectionAndLandscapeDrawing() throws {
         #if !targetEnvironment(macCatalyst)
         XCUIDevice.shared.orientation = .portrait

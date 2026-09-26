@@ -1,5 +1,15 @@
 import Foundation
 
+enum PaperGrain: String, Codable, CaseIterable {
+    case legacy, coarse, medium, fine
+    var label: String {
+        switch self { case .legacy: return "従来の紙目"; case .coarse: return "粗"; case .medium: return "中"; case .fine: return "細" }
+    }
+    var metalIndex: UInt32 {
+        switch self { case .legacy: return 0; case .coarse: return 1; case .medium: return 2; case .fine: return 3 }
+    }
+}
+
 struct PaperSize: Equatable {
     let width: Int
     let height: Int

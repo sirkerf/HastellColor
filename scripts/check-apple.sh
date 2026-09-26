@@ -4,7 +4,8 @@ cd "$(dirname "$0")/.."
 mkdir -p apple/.build
 cabal run hastellcolor-metal -- --check
 cabal run hastellcolor-metal -- --fixtures apple/.build/reference.json
+cabal run hastellcolor-metal -- --material-fixtures apple/.build/materials.json
 xcrun swiftc -O -module-cache-path apple/.build/ModuleCache \
     apple/HastellColor/Drawing.swift apple/HastellColor/Paper.swift apple/HastellColor/MetalPainter.swift \
-    apple/Tests/RendererChecks.swift -o apple/.build/renderer-checks
-apple/.build/renderer-checks apple/HastellColor/Generated/Paint.metal apple/.build/reference.json
+    apple/Tests/RendererChecks.swift apple/Tests/MaterialChecks.swift -o apple/.build/renderer-checks
+apple/.build/renderer-checks apple/HastellColor/Generated/Paint.metal apple/.build/reference.json apple/.build/materials.json

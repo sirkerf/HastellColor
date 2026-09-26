@@ -3,6 +3,7 @@
 module HastellColor.Brush.Kernel
   ( BrushScalar
   , baseRadius, minorRadius, majorRadius, grainContact, strokeContact, depositAmount, raisedSurface
+  , paperRelief, rubContact, pigmentTransfer, pigmentExchange, liftingContact
   , metalFunctions
   ) where
 
@@ -34,6 +35,26 @@ depositAmount amount contact = (1 - amount) * contact
 raisedSurface :: BrushScalar a => a -> a -> a -> a
 raisedSurface height amount nearby =
   height + (1 - height) * saturate (0.65 * amount + 1.6 * nearby)
+
+paperRelief :: BrushScalar a => a -> a -> a -> a
+paperRelief fine coarse roughness = 1 - roughness * (0.8 * fine + 0.2 * coarse)
+
+-- Rubbing transports existing pigment. Contact increases as pigment fills
+-- the tooth. Coefficients are bounded by each tool's transport + 2*exchange <= 1.
+rubContact :: BrushScalar a => a -> a -> a -> a -> a
+rubContact surface pressure edge strength =
+  saturate (pressure * strength) * edge * (0.3 + 0.7 * surface)
+
+pigmentTransfer :: BrushScalar a => a -> a -> a -> a -> a
+pigmentTransfer source destination contact mobility = source * (1 - destination) * contact * mobility
+
+pigmentExchange :: BrushScalar a => a -> a -> a -> a -> a
+pigmentExchange source destination contact mixing =
+  ((source + destination - abs (source - destination)) / 2) * contact * mixing
+
+liftingContact :: BrushScalar a => a -> a -> a -> a -> a
+liftingContact surface pressure edge strength =
+  0.45 * saturate (pressure * strength) * edge * (0.25 + 0.75 * surface)
 
 -- A small expression language keeps GPU equations generated from the same
 -- Haskell definitions as the Double implementation above.
@@ -71,6 +92,11 @@ metalFunctions = unlines
   , function "hcStrokeContact(float c, float p)" (strokeContact c p)
   , function "hcDeposit(float m, float c)" (depositAmount m c)
   , function "hcSurface(float h, float m, float n)" (raisedSurface h m n)
+  , function "hcPaperRelief(float e, float c, float r)" (paperRelief e c r)
+  , function "hcRubContact(float h, float p, float e, float s)" (rubContact h p e s)
+  , function "hcTransfer(float m, float n, float c, float s)" (pigmentTransfer m n c s)
+  , function "hcExchange(float m, float n, float c, float s)" (pigmentExchange m n c s)
+  , function "hcLift(float h, float p, float e, float s)" (liftingContact h p e s)
   ]
   where
     r = Shader "r"
@@ -81,4 +107,5 @@ metalFunctions = unlines
     m = Shader "m"
     c = Shader "c"
     n = Shader "n"
+    s = Shader "s"
     function signature (Shader expression) = "float " ++ signature ++ " { return " ++ expression ++ "; }"

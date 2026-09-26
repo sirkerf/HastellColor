@@ -36,10 +36,10 @@ struct StudioView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 HStack(spacing: 16) {
-                    Picker("画材", selection: $store.eraser) {
-                        Text("パステル").tag(false)
-                        Text("消しゴム").tag(true)
-                    }.pickerStyle(.segmented).frame(width: 200)
+                    Picker("画材", selection: $store.tool) {
+                        ForEach(DrawingTool.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }.pickerStyle(.menu).frame(width: 160, alignment: .leading)
+                        .accessibilityIdentifier("drawingTool")
                     Image(systemName: "circle.fill").font(.system(size: 9))
                     Slider(value: $store.radius, in: 1...60).frame(maxWidth: 180).accessibilityLabel("ブラシの半径")
                     Text("\(Int(store.radius)) px").monospacedDigit().frame(width: 52, alignment: .trailing)
@@ -47,15 +47,15 @@ struct StudioView: View {
                     Text(store.saveStatus).font(.caption).foregroundStyle(.secondary)
                 }.padding(.horizontal, 24).padding(.vertical, 12)
                 HStack(spacing: 12) {
-                    Text("塗りの強さ").font(.caption)
+                    Text(store.tool.rubbing == nil ? "塗りの強さ" : "こする強さ").font(.caption)
                     Slider(value: $store.strength, in: 0.25...2.5, step: 0.05)
                         .frame(maxWidth: 160).disabled(store.eraser)
-                        .accessibilityLabel("塗りの強さ").accessibilityIdentifier("pigmentStrength")
+                        .accessibilityLabel(store.tool.rubbing == nil ? "塗りの強さ" : "こする強さ").accessibilityIdentifier("pigmentStrength")
                     Text("\(Int((store.strength * 100).rounded())) %").font(.caption).monospacedDigit()
                     Spacer(minLength: 8)
                     Button { paperSettings = true } label: {
                         VStack(alignment: .trailing, spacing: 2) {
-                            Text(store.drawing.size.pixelDescription)
+                            Text("\(store.drawing.size.pixelDescription) · 紙目 \(store.drawing.grain.label)")
                             Text(store.drawing.size.physicalDescription)
                         }.font(.caption).monospacedDigit()
                     }.disabled(store.isDrawing).accessibilityIdentifier("paperSettings")
@@ -116,6 +116,7 @@ struct StudioView: View {
                     Menu {
                         #if !targetEnvironment(macCatalyst)
                         Toggle("指でも描く", isOn: $store.fingerDrawing)
+                        Toggle("指でこする", isOn: $store.fingerSmudging)
                         #endif
                         Toggle("筆圧を固定（USB-C Pencil用）", isOn: $store.fixedPressure)
                     } label: { Label("入力設定", systemImage: "pencil.tip.crop.circle") }
