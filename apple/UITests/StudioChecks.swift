@@ -65,6 +65,7 @@ final class StudioChecks: XCTestCase {
         let picker = app.buttons["chooseColor"]
         let original = picker.value as? String
         picker.tap()
+        app.buttons["RGB 10bit"].tap()
         XCTAssertTrue(app.sliders["redSlider"].waitForExistence(timeout: 5))
         // Merely opening the picker must preserve the existing precise color.
         app.buttons["finishChoosingColor"].tap()
@@ -84,7 +85,10 @@ final class StudioChecks: XCTestCase {
         app.buttons["finishChoosingColor"].tap()
         #if !targetEnvironment(macCatalyst)
         XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertGreaterThan(app.frame.width, app.frame.height)
+        let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            app.frame.width > app.frame.height
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 8), .completed)
         #endif
         XCTAssertTrue(app.frame.contains(canvas.frame))
         XCTAssertTrue(picker.isHittable)
@@ -99,6 +103,80 @@ final class StudioChecks: XCTestCase {
         landscapeShot.name = "Landscape drawing"
         landscapeShot.lifetime = .keepAlways
         add(landscapeShot)
+    }
+
+    @MainActor
+    func testTraditionalPalettesAndCustomPaper() throws {
+        #if !targetEnvironment(macCatalyst)
+        XCUIDevice.shared.orientation = .portrait
+        #endif
+        let app = XCUIApplication()
+        app.launch()
+        let canvas = app.otherElements["drawingCanvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 15))
+        app.buttons["青"].tap()
+        let picker = app.buttons["chooseColor"]
+        let original = picker.value as? String
+        picker.tap()
+        app.buttons["クラシック"].tap()
+        let classic = app.otherElements["classicColorField"]
+        XCTAssertTrue(classic.waitForExistence(timeout: 5))
+        app.buttons["サークル"].tap()
+        XCTAssertTrue(app.otherElements["circleColorField"].waitForExistence(timeout: 5))
+        app.buttons["RGB 10bit"].tap()
+        app.buttons["finishChoosingColor"].tap()
+        XCTAssertEqual(picker.value as? String, original, "Switching layouts changed the colour")
+        picker.tap(); app.buttons["クラシック"].tap()
+        classic.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.25)).tap()
+        let classicShot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        classicShot.name = "Classic P3 palette"; classicShot.lifetime = .keepAlways; add(classicShot)
+        app.buttons["restoreOriginalColor"].tap()
+        app.buttons["finishChoosingColor"].tap()
+        XCTAssertEqual(picker.value as? String, original, "Restore original colour followed the edited colour")
+        picker.tap()
+        classic.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.25)).tap()
+        app.buttons["finishChoosingColor"].tap()
+        let changed = picker.value as? String
+        XCTAssertNotEqual(changed, original)
+        picker.tap(); app.buttons["サークル"].tap()
+        let circle = app.otherElements["circleColorField"]
+        XCTAssertGreaterThan(circle.frame.height, 150, "Circle field collapsed: \(circle.frame)")
+        // A Form row's accessibility frame includes its horizontal spacers.
+        // Aim inside the visible disc using its height, not the row's width.
+        circle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .withOffset(CGVector(dx: min(circle.frame.width, circle.frame.height) * 0.3, dy: 0)).tap()
+        let circleShot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        circleShot.name = "Circle P3 palette"; circleShot.lifetime = .keepAlways; add(circleShot)
+        app.buttons["finishChoosingColor"].tap()
+        XCTAssertNotEqual(picker.value as? String, changed)
+        picker.tap()
+        XCTAssertTrue(app.otherElements["circleColorField"].exists, "Palette layout preference was not retained")
+        app.buttons["クラシック"].tap(); app.buttons["finishChoosingColor"].tap()
+        app.buttons["ファイル"].tap(); app.buttons["新しい用紙"].tap()
+        func replace(_ id: String, _ text: String) {
+            let field = app.textFields[id]
+            field.tap()
+            let current = field.value as? String ?? ""
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count) + text)
+            XCTAssertEqual(field.value as? String, text)
+        }
+        replace("paperWidth", "25.4"); replace("paperHeight", "50.8")
+        replace("paperDPI", "0")
+        XCTAssertFalse(app.buttons["createPaper"].isEnabled)
+        replace("paperDPI", "145.5")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "146 × 291")).firstMatch.exists)
+        app.buttons["createPaper"].tap()
+        let paper = app.buttons["paperSettings"]
+        XCTAssertTrue(paper.label.contains("146 × 291") && paper.label.contains("145.5 dpi"))
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.3))
+            .press(forDuration: 0.1, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.7)))
+        XCTAssertTrue(app.staticTexts["保存済み"].waitForExistence(timeout: 10))
+        app.terminate(); app.launch()
+        XCTAssertTrue(canvas.waitForExistence(timeout: 15))
+        XCTAssertTrue(paper.label.contains("146 × 291") && paper.label.contains("145.5 dpi"))
+        XCTAssertEqual(canvas.value as? String, "1本の線")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
     }
 
     @MainActor

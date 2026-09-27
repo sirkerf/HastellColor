@@ -68,22 +68,31 @@ struct NewPaperSheet: View {
                 Section("寸法と解像度") {
                     Picker("入力単位", selection: Binding(get: { draft.unit }, set: { draft.selectUnit($0) })) {
                         ForEach(PaperUnit.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }.pickerStyle(.segmented)
+                    }.pickerStyle(.segmented).disabled(!draft.validDPI).accessibilityIdentifier("paperUnit")
                     dimension("幅", value: $draft.width, id: "paperWidth")
                     dimension("高さ", value: $draft.height, id: "paperHeight")
                     Button("縦横を入れ替える", systemImage: "arrow.triangle.2.circlepath") { draft.swapOrientation() }
-                    Picker("解像度", selection: $draft.dpi) {
-                        ForEach([72.0, 150, 300, 350, 600, 1200], id: \.self) { Text("\(Int($0)) dpi").tag($0) }
-                    }.accessibilityIdentifier("paperDPI")
+                    HStack {
+                        Text("解像度")
+                        TextField("dpi", text: $draft.dpiText).keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing).accessibilityIdentifier("paperDPI")
+                        Text("dpi").foregroundStyle(.secondary)
+                        Menu {
+                            ForEach([72.0, 150, 300, 350, 600, 1200], id: \.self) { dpi in
+                                Button("\(Int(dpi)) dpi") { draft.dpi = dpi }
+                            }
+                        } label: { Image(systemName: "list.bullet") }
+                            .accessibilityLabel("よく使う解像度")
+                    }
                     if let size = draft.size {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(size.pixelDescription).monospacedDigit()
                             Text(size.physicalDescription).monospacedDigit().foregroundStyle(.secondary)
                         }.accessibilityElement(children: .combine).accessibilityIdentifier("newPaperDimensions")
                     } else {
-                        Text(PaperDraft.limitMessage).foregroundStyle(.red)
+                        Text(draft.validationMessage).foregroundStyle(.red).accessibilityIdentifier("paperValidation")
                     }
-                    Text("mmからpxへの換算では端数を丸めます。mm表示は実際の画素数とdpiから計算した値です。")
+                    Text("解像度は36〜1200 dpiで自由入力できます。mm入力では解像度に応じて画素数が変わり、px入力では画素数を保って実寸が変わります。画素数の端数は丸めます。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 PaperGrainControls(grain: $grain)

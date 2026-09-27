@@ -2,6 +2,12 @@
 
 ## Unreleased — macOS / iPadOS drawing prototype
 
+- Prioritize traditional colour selection with classic and circular palettes;
+  retain the RGB 10-bit editor as a selectable layout and remember the choice.
+  All layouts use floating-point Display P3 without an 8-bit colour conversion.
+- Allow free-form fractional dpi alongside resolution presets and custom mm/px
+  dimensions, with validated bounds and physical-size previews.
+
 - Report renderer test failures and thrown errors with exit status 1 instead
   of crashing the test process and triggering a macOS crash notification.
 

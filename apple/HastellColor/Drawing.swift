@@ -10,6 +10,15 @@ struct InkColor: Codable, Equatable {
     static let white = InkColor(red: 1, green: 1, blue: 1)
     var valid: Bool { [red, green, blue].allSatisfy { $0.isFinite && (0...1).contains($0) } }
 
+    static func encodeComponent(_ linear: Double) -> Double {
+        let v = min(1, max(0, linear))
+        return v <= 0.0031308 ? 12.92 * v : 1.055 * pow(v, 1 / 2.4) - 0.055
+    }
+    static func decodeComponent(_ encoded: Double) -> Double {
+        let v = min(1, max(0, encoded))
+        return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+    }
+
     // The picker uses encoded Display P3 levels, while Metal blends linear
     // light. Convert at the UI boundary without an intermediate 8-bit color.
     func level(_ channel: Channel) -> Int {
@@ -19,14 +28,12 @@ struct InkColor: Codable, Equatable {
         case .green: linear = Double(green)
         case .blue: linear = Double(blue)
         }
-        let v = max(0, min(1, linear))
-        let encoded = v <= 0.0031308 ? 12.92 * v : 1.055 * pow(v, 1 / 2.4) - 0.055
-        return Int((encoded * 1023).rounded())
+        return Int((Self.encodeComponent(linear) * 1023).rounded())
     }
 
     func settingLevel(_ level: Int, channel: Channel) -> InkColor {
         let encoded = Double(max(0, min(1023, level))) / 1023
-        let linear = Float(encoded <= 0.04045 ? encoded / 12.92 : pow((encoded + 0.055) / 1.055, 2.4))
+        let linear = Float(Self.decodeComponent(encoded))
         var result = self
         switch channel {
         case .red: result.red = linear

@@ -99,6 +99,34 @@ struct Fixture: Decodable {
         check(precise.green == gray.green && precise.blue == gray.blue, "Editing red quantized other channels")
         let levels = (0...1023).map { Float16(black.settingLevel($0, channel: .red).red).bitPattern }
         check(Set(levels).count == 1024, "16-bit GPU storage collapses 10-bit picker levels")
+        let exact = InkColor(red: 0.1234567, green: 0.7654321, blue: 0.2345678)
+        var selection = PaletteSelection(exact)
+        check(selection.color == exact, "Opening a traditional palette quantized the colour")
+        let samples: [Float] = [0, 0.0012345, 0.01765, 0.1234567, 0.50431, 0.76432, 1]
+        check(samples.allSatisfy { r in samples.allSatisfy { g in samples.allSatisfy { b in
+            let color = InkColor(red: r, green: g, blue: b), restored = PaletteHSV(color).color
+            return abs(restored.red-r) < 0.000001 && abs(restored.green-g) < 0.000001 && abs(restored.blue-b) < 0.000001
+        } } }, "P3 HSV round trip changed colour or reduced precision")
+        selection.edit(hue: 0, saturation: 1, brightness: 1)
+        check(selection.color == InkColor(red: 1, green: 0, blue: 0), "Traditional palette lost the P3 red primary")
+        selection.selectClassic(x: 0, y: 0)
+        check(selection.color == .white, "Classic white corner")
+        selection.selectClassic(x: 1, y: 1)
+        check(selection.color == black, "Classic black corner")
+        selection.edit(hue: 0.7, saturation: 0.8, brightness: 0)
+        selection.setColor(black); selection.edit(brightness: 0.7)
+        check(abs(selection.hsv.hue-0.7) < 0.000001 && abs(selection.hsv.saturation-0.8) < 0.000001,
+            "Passing through black lost the intended hue or saturation")
+        selection.selectCircle(x: 1, y: 0.5)
+        check(selection.hsv.hue == 0 && selection.hsv.saturation == 1 && selection.hsv.brightness == 0.7,
+            "Circle selection changed brightness or chose the wrong hue")
+        selection.selectCircle(x: 0.5, y: 0.5)
+        check(selection.hsv.saturation == 0 && selection.color.red == selection.color.green
+            && selection.color.green == selection.color.blue, "Circle centre is not neutral")
+        selection.edit(hue: 0.2, saturation: 0.501, brightness: 0.7345)
+        let subtle = selection.color
+        selection.edit(saturation: 0.5011)
+        check(selection.color != subtle, "Traditional palette rounded subtle changes to 8-bit levels")
         var preciseDocument = Drawing(width: 32, height: 24, strokes: [stroke])
         preciseDocument.strokes[0].color = precise
         check(try Drawing.decode(preciseDocument.encoded()) == preciseDocument, "Save quantized the chosen color")
@@ -122,6 +150,18 @@ struct Fixture: Decodable {
         let originalSize = draft.size
         for _ in 0..<20 { draft.selectUnit(.mm); draft.selectUnit(.px) }
         check(draft.size == originalSize, "Unit switching changed pixel dimensions")
+        draft.dpiText = "96.5"
+        check(draft.size == PaperSize(width: 2048, height: 2048, dpi: 96.5), "Custom dpi resampled pixel input")
+        draft.selectUnit(.mm)
+        draft.width = "２５．４"; draft.height = "50.8"; draft.dpiText = "１４５．５"
+        check(draft.size == PaperSize(width: 146, height: 291, dpi: 145.5), "Custom fractional mm/dpi conversion")
+        check(draft.size!.physicalDescription.contains("145.5 dpi"), "Fractional dpi rounded in the paper label")
+        let fractional = Drawing(width: 146, height: 291, dpi: 145.5)
+        check(try Drawing.decode(fractional.encoded()) == fractional, "Fractional dpi lost in archive")
+        for invalid in ["", "0", "35.9", "1200.1", "NaN", "inf", "300dpi"] {
+            draft.dpiText = invalid
+            check(draft.size == nil && !draft.validDPI, "Invalid custom dpi accepted: \(invalid)")
+        }
         draft.selectPreset(.postcard); draft.dpi = 300
         check(draft.size == PaperSize(width: 1181, height: 1748, dpi: 300), "Postcard conversion")
         draft.swapOrientation()
@@ -166,12 +206,12 @@ struct Fixture: Decodable {
             return expected.isNaN ? actual.isNaN : expected == actual
         }, "Portable binary16 decoding changed pixel values")
         try painter.reset()
-        painter.paperColor = PaperPalette.colors[2].1; painter.dpi = 600
+        painter.paperColor = PaperPalette.colors[2].1; painter.dpi = 254.5
         let paperPNG = try painter.png()
         let paperSource = CGImageSourceCreateWithData(paperPNG as CFData, nil)!
         let properties = CGImageSourceCopyPropertiesAtIndex(paperSource, 0, nil)! as NSDictionary
-        check(abs((properties[kCGImagePropertyDPIWidth] as! Double) - 600) < 0.1
-            && abs((properties[kCGImagePropertyDPIHeight] as! Double) - 600) < 0.1, "PNG lost print resolution")
+        check(abs((properties[kCGImagePropertyDPIWidth] as! Double) - 254.5) < 0.1
+            && abs((properties[kCGImagePropertyDPIHeight] as! Double) - 254.5) < 0.1, "PNG lost fractional print resolution")
         let paperImage = CGImageSourceCreateImageAtIndex(paperSource, 0, nil)!
         var decodedPaper = [Float](repeating: 0, count: 32 * 24 * 4)
         decodedPaper.withUnsafeMutableBytes { bytes in

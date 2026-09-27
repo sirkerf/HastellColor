@@ -169,58 +169,6 @@ func displayColor(_ ink: InkColor) -> Color {
     return Color(cgColor: color)
 }
 
-private struct InkColorSheet: View {
-    @Binding var color: InkColor
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    RoundedRectangle(cornerRadius: 14).fill(displayColor(color)).frame(height: 80)
-                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(.gray.opacity(0.3)))
-                        .accessibilityLabel("選択中の色")
-                        .accessibilityValue(color.levelDescription)
-                    ColorPicker("カラーパレットから選ぶ", selection: systemColor, supportsOpacity: false)
-                }
-                Section {
-                    channel(.red, title: "赤（R）", tint: .red)
-                    channel(.green, title: "緑（G）", tint: .green)
-                    channel(.blue, title: "青（B）", tint: .blue)
-                } header: {
-                    Text("Display P3・色を細かく調整")
-                } footer: {
-                    Text("各色を0〜1023で調整できます。＋と−で1段階ずつ変更できます。紙に描いた色の濃さは筆圧や重ね塗りでも変わります。")
-                }
-            }
-            .navigationTitle("色を選ぶ")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) {
-                Button("完了") { dismiss() }.accessibilityIdentifier("finishChoosingColor")
-            } }
-        }
-    }
-
-    private func channel(_ channel: InkColor.Channel, title: String, tint: Color) -> some View {
-        let level = Binding<Int>(get: { color.level(channel) }, set: { color = color.settingLevel($0, channel: channel) })
-        return VStack(spacing: 8) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text("\(level.wrappedValue) / 1023").monospacedDigit()
-                    .accessibilityIdentifier("\(channel.rawValue)Level")
-                Stepper(title, value: level, in: 0...1023).labelsHidden().fixedSize()
-                    .accessibilityIdentifier("\(channel.rawValue)Stepper")
-            }
-            Slider(value: Binding(get: { Double(level.wrappedValue) }, set: { level.wrappedValue = Int($0.rounded()) }),
-                in: 0...1023, step: 1).tint(tint).accessibilityLabel(title)
-                .accessibilityIdentifier("\(channel.rawValue)Slider")
-        }.padding(.vertical, 4)
-    }
-
-    private var systemColor: Binding<Color> { colorSelection($color) }
-}
-
 func colorSelection(_ color: Binding<InkColor>) -> Binding<Color> {
     Binding(get: { displayColor(color.wrappedValue) }, set: { selected in
         let space = CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3)!
