@@ -142,11 +142,10 @@ xcodebuild -project apple/HastellColor.xcodeproj -scheme HastellColor \
   -configuration Debug -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath apple/build CODE_SIGNING_ALLOWED=NO build
-# 実行先の iPad シミュレータ名はインストール済みのものに合わせる
-xcodebuild -project apple/HastellColor.xcodeproj -scheme HastellColor \
-  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=latest' \
-  -parallel-testing-enabled NO -collect-test-diagnostics never \
-  -derivedDataPath apple/build CODE_SIGNING_ALLOWED=NO test
+# テスト用iPadのUDIDを確認し、起動・終了とクラッシュ監視を含むUIテストを実行
+xcrun simctl list devices available
+python3 -B scripts/check-apple-ui.py '対象iPadのUDID'
+python3 -B -m unittest discover -s scripts/tests -v
 # Macのローカルビルド。クラウド同期由来のFinder属性を避けるため/tmpを使う
 xcodebuild -project apple/HastellColor.xcodeproj -scheme HastellColor \
   -destination 'generic/platform=macOS,variant=Mac Catalyst' \
@@ -171,8 +170,10 @@ M4（13インチ・iPadOS 26.0）は前バージョンで確認しています�
 2026-09-27の今回の変更では、M2と13インチM5でクラシック・サークル・RGBの切り替え、
 色の選択、自由入力した寸法とdpi、保存・復元のシナリオが通過しました。
 元の色への復帰も最終調整後にM2で確認しています。
-同じ環境での横向きへの回転テストは今回は失敗しました。保持してあった変更前のビルドでも
-同じ失敗が再現したため、今回の変更による回帰とは断定していません。現在の横向き動作は確認保留です。
+同日の横向きテスト失敗は、シミュレータをデータを消さずに停止・起動し直すことで解消しました。
+テストは左右の横向きと縦向き復帰の各段階で、描画・操作・用紙寸法の保持を確認するよう補強しました。
+対処後はM2と13インチM5（ともにiPadOS 26.2）で全5シナリオが通過し、終了監視でも
+SpringBoardの異常終了や新規クラッシュ記録はありませんでした。
 2026-09-27にApple描画・文書テスト125項目がM2 Maxで通過しました。Haskellは74項目が通過しています。
 従来型パレットのP3変換と精度保持、黒を経由した際の色相保持、任意dpiの入力検証、
 小数dpiの文書保存・PNG書き出しも検証しています。
@@ -185,12 +186,13 @@ A4 / 600 dpi（4961×7016）のGPU描画とPNG書き出しをM2 MaxのMacで検�
 Mac Catalystは今回の変更でarm64 / x86_64のビルドを確認しています。
 アプリ起動・描画表示は前バージョンで確認済みです。
 MacのXCTestはローカル署名のテストランナーでTeam IDの不一致が起き、実行完了できていません。
-また、2026-09-27の10:28と10:32（日本時間）に、UIテスト終了と同時刻の
-シミュレータのSpringBoard異常終了を確認しました。両方とも記録上の先頭フレームは
-`XCTAutomationSession` の自動操作処理で、HastellColor本体のクラッシュ記録はありません。
-テスト項目は通過しましたが、このテスト環境の終了時の問題は未解決です。
-失敗時のXcodeの詳細診断収集が完了しない場合もあるため、上記コマンドではその収集を無効にしています。
-テストの成否・ログ・明示的に添付したスクリーンショットは引き続き記録します。
+2026-09-27のSpringBoard異常終了は、Appleの`XCTAutomationSession`の
+接続解除処理でnilの参照先を読み取る箇所（+184）まで特定しました。
+上記UIテスト用スクリプトは、対象端末を停止してからXcodeに新しいセッションで起動させ、
+終了時の状態も監視します。XCTestが成功していても、対象シミュレータの異常終了を検出すれば失敗です。
+Apple側のバイナリ自体の修正ではなく、セッション状態に依存する問題を避ける実行手順です。
+失敗時の詳細診断収集は完了しないことがあるため無効にし、成否・ログ・添付画面は保存します。
+発生箇所、監視の範囲、実行方法は[UIテストの調査記録](TESTING.md)を参照してください。
 
 シミュレータでの確認では、実物の Pencil 入力、パネルの色、120 Hz の描き心地は評価できません。
 実機では弱い線 / 強い線、ペンを寝かせた線、素早い曲線、手のひらを置いた描画、

@@ -83,26 +83,51 @@ final class StudioChecks: XCTestCase {
         picker.tap()
         XCTAssertEqual(app.staticTexts["redLevel"].label, changedLevel)
         app.buttons["finishChoosingColor"].tap()
-        #if !targetEnvironment(macCatalyst)
-        XCUIDevice.shared.orientation = .landscapeLeft
-        let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            app.frame.width > app.frame.height
-        }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 8), .completed)
+        let paper = app.buttons["paperSettings"].label
+        #if targetEnvironment(macCatalyst)
+        let orientations: [UIDeviceOrientation] = [.unknown]
+        #else
+        let orientations: [UIDeviceOrientation] = [.landscapeLeft, .portrait, .landscapeRight, .portrait]
         #endif
-        XCTAssertTrue(app.frame.contains(canvas.frame))
-        XCTAssertTrue(picker.isHittable)
-        let before = canvas.value as? String
-        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.4))
-            .press(forDuration: 0.1, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.6)))
-        XCTAssertNotEqual(canvas.value as? String, before)
-        XCTAssertFalse(app.alerts.firstMatch.exists)
-        // Capture the display: application-only cropping on some Simulator
-        // versions applies portrait coordinates to a rotated surface.
-        let landscapeShot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        landscapeShot.name = "Landscape drawing"
-        landscapeShot.lifetime = .keepAlways
-        add(landscapeShot)
+        for orientation in orientations {
+            #if !targetEnvironment(macCatalyst)
+            guard rotate(orientation, app: app) else { return }
+            #endif
+            XCTAssertTrue(app.frame.contains(canvas.frame))
+            XCTAssertTrue(picker.isHittable)
+            XCTAssertEqual(app.buttons["paperSettings"].label, paper, "Rotation changed the document dimensions")
+            let before = canvas.value as? String
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.4))
+                .press(forDuration: 0.1, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.6)))
+            XCTAssertNotEqual(canvas.value as? String, before)
+            XCTAssertFalse(app.alerts.firstMatch.exists)
+            // Capture the display: application-only cropping on some Simulator
+            // versions applies portrait coordinates to a rotated surface.
+            let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            shot.name = "Drawing orientation \(orientation.rawValue)"
+            shot.lifetime = .keepAlways
+            add(shot)
+        }
+    }
+
+    @MainActor
+    private func rotate(_ orientation: UIDeviceOrientation, app: XCUIApplication,
+                        file: StaticString = #filePath, line: UInt = #line) -> Bool {
+        XCUIDevice.shared.orientation = orientation
+        // A reported device orientation alone does not prove the interface rotated.
+        let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let frame = app.frame
+            return orientation.isLandscape ? frame.width > frame.height : frame.height > frame.width
+        }, object: nil)
+        let completed = XCTWaiter.wait(for: [rotated], timeout: 8) == .completed
+        if !completed {
+            let details = XCTAttachment(string: "Requested: \(orientation.rawValue), device: \(XCUIDevice.shared.orientation.rawValue), app: \(app.frame)\n\(app.debugDescription)")
+            details.name = "Rotation failure diagnostics"; details.lifetime = .keepAlways; add(details)
+            let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            shot.name = "Rotation failure screen"; shot.lifetime = .keepAlways; add(shot)
+        }
+        XCTAssertTrue(completed, "Interface did not rotate to \(orientation.rawValue): \(app.frame)", file: file, line: line)
+        return completed
     }
 
     @MainActor

@@ -40,5 +40,6 @@
 /apple/.build/
 xcuserdata/
 *.xcuserstate
+__pycache__/
 
 /apple/build-catalyst/

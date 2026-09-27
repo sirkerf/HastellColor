@@ -51,6 +51,7 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
                    README.md
                    apple/README.md
+                   apple/TESTING.md
 
 -- Extra source files to be distributed with the package, such as examples, or a tutorial module.
 extra-source-files: metal/Paint.metal.in
@@ -62,6 +63,8 @@ extra-source-files: metal/Paint.metal.in
                     apple/Tests/*.swift
                     apple/UITests/*.swift
                     scripts/check-apple.sh
+                    scripts/check-apple-ui.py
+                    scripts/tests/*.py
 
 common warnings
     ghc-options: -Wall

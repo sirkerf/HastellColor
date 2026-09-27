@@ -2,6 +2,12 @@
 
 ## Unreleased — macOS / iPadOS drawing prototype
 
+- Run UI checks from a cold, data-preserving Simulator session to recover from
+  stale rotation/automation state. Fail the check if Simulator health reports
+  a crash even when XCTest succeeds, and retain the diagnostic artifacts.
+- Verify drawing in both landscape directions and on return to portrait;
+  stop and attach diagnostics when the interface fails to rotate.
+
 - Prioritize traditional colour selection with classic and circular palettes;
   retain the RGB 10-bit editor as a selectable layout and remember the choice.
   All layouts use floating-point Display P3 without an 8-bit colour conversion.
