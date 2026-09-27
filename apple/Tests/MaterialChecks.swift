@@ -34,6 +34,7 @@ func checkMaterials(device: MTLDevice, library: MTLLibrary, fixturePath: String)
     for fixture in fixtures {
         painter.grain = PaperGrain.allCases.first { $0.metalIndex == fixture.grain }!
         try painter.replay(paint)
+        let beforeRubbing = try painter.pixels()
         if fixture.tool != 0 {
             let tool = RubbingTool.allCases.first { $0.metalIndex == fixture.tool }!
             let samples = tool == .kneaded ? [point(12,12)] : [point(5,12), point(25,12)]
@@ -53,8 +54,10 @@ func checkMaterials(device: MTLDevice, library: MTLLibrary, fixturePath: String)
         print("Material CPU/GPU \(fixture.name): max error \(maximum)")
         check(maximum < 0.004, "Material reference mismatch: \(fixture.name), error \(maximum)")
         if fixture.tool > 0 && fixture.tool < 4 {
-            check((0..<4).allSatisfy { abs(mass(actual, channel: $0) - mass(fixture.initial, channel: $0)) < 0.15 },
-                "Rubbing loses pigment or changes colour mass: \(fixture.name)")
+            let massErrors = (0..<4).map { mass(actual, channel: $0) - mass(beforeRubbing, channel: $0) }
+            print("Material mass error \(fixture.name): \(massErrors)")
+            check(massErrors.allSatisfy { abs($0) < 0.15 },
+                "Rubbing loses pigment or changes colour mass: \(fixture.name), errors \(massErrors)")
             toolResults.append(actual)
         }
     }

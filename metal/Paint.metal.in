@@ -134,6 +134,15 @@ float rubbingWeight(int2 p, texture2d<float, access::read> image,
     float h = hcSurface(paperHeight(uint2(p), float4(params.controls.zw, 0, 0)), image.read(uint2(p)).a, nearby);
     return hcRubContact(h, params.center.z, edge, params.controls.y);
 }
+// Values are finite and in [0, 1]. Quantise to IEEE binary16 with nearest-even
+// rounding before the texture write, so its conversion cannot introduce a
+// directional bias over many rubbing steps. Keep the result as exact float32.
+float4 roundForHalfStorage(float4 value) {
+    uint4 bits = as_type<uint4>(value);
+    uint4 rounded = (bits + 0xfffu + ((bits >> 13) & 1u)) & 0xffffe000u;
+    float4 subnormal = rint(value * 16777216.0f) * (1.0f / 16777216.0f);
+    return select(as_type<float4>(rounded), subnormal, value < 0.00006103515625f);
+}
 kernel void rub(texture2d<float, access::read> image [[texture(0)]],
                 texture2d<float, access::write> result [[texture(1)]],
                 constant RubParameters &params [[buffer(0)]], uint2 gid [[thread_position_in_grid]]) {
@@ -164,10 +173,14 @@ kernel void rub(texture2d<float, access::read> image [[texture(0)]],
             }
         }
     }
-    // Round once in arithmetic before the texture store. Native texture-write
-    // conversion can truncate on some GPUs, biasing repeated transport darker.
-    half4 rounded = half4(float4(total.a > 0 ? saturate(total.rgb / total.a) : float3(0), saturate(total.a)));
-    result.write(float4(rounded), uint2(p));
+    // Preserve untouched pixels exactly, including zero-pressure input. Avoid
+    // normalising their straight colour through a multiply/divide round trip.
+    if (all(total == float4(cell.rgb * cell.a, cell.a))) {
+        result.write(cell, uint2(p));
+        return;
+    }
+    float4 value = float4(total.a > 0 ? saturate(total.rgb / total.a) : float3(0), saturate(total.a));
+    result.write(roundForHalfStorage(value), uint2(p));
 }
 
 struct VertexOut { float4 position [[position]]; float2 uv; };

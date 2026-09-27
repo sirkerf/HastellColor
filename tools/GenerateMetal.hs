@@ -26,7 +26,7 @@ main = do
         else die "Metal source is stale. Run: cabal run hastellcolor-metal"
     ["--fixtures", output] -> either die (writeFile output) referenceFixtures
     ["--material-fixtures", output] -> either die (writeFile output) materialFixtures
-    _ -> die "Usage: cabal run hastellcolor-metal [-- --check | --fixtures PATH] (from repository root)"
+    _ -> die "Usage: cabal run hastellcolor-metal [-- --check | --fixtures PATH | --material-fixtures PATH] (from repository root)"
 
 -- GPU tests compare the complete pigment state, not just a screenshot. The
 -- interactive brush has replenished supply and no wear, represented here by

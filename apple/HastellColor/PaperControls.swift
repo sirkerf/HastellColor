@@ -86,7 +86,7 @@ struct NewPaperSheet: View {
                     Text("mmからpxへの換算では端数を丸めます。mm表示は実際の画素数とdpiから計算した値です。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                PaperGrainControls(grain: $grain, includeLegacy: store.drawing.grain == .legacy)
+                PaperGrainControls(grain: $grain)
                 PaperColorControls(color: $color)
                 Section {
                     Text("今の作品に線がある場合は、自動保存と同じ場所に控えを残してから新しい用紙に切り替えます。")

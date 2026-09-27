@@ -12,14 +12,15 @@ final class StudioChecks: XCTestCase {
         app.buttons["空にする（取り消し可能）"].tap()
         let paper = app.buttons["paperSettings"]
         let oldPaper = paper.label
+        let grain = oldPaper.contains("紙目 粗") ? "細" : "粗"
         paper.tap()
-        app.buttons["粗"].tap()
+        app.buttons[grain].tap()
         app.buttons["applyPaperColor"].tap()
-        XCTAssertTrue(paper.label.contains("紙目 粗"))
+        XCTAssertTrue(paper.label.contains("紙目 \(grain)"))
         app.buttons["取り消す"].tap()
         XCTAssertEqual(paper.label, oldPaper)
         app.buttons["やり直す"].tap()
-        XCTAssertTrue(paper.label.contains("紙目 粗"))
+        XCTAssertTrue(paper.label.contains("紙目 \(grain)"))
         app.sliders["ブラシの半径"].adjust(toNormalizedSliderPosition: 0.65)
         app.buttons["朱"].tap()
         canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.3))
@@ -44,10 +45,10 @@ final class StudioChecks: XCTestCase {
         app.terminate(); app.launch()
         XCTAssertTrue(canvas.waitForExistence(timeout: 20))
         XCTAssertEqual(canvas.value as? String, "6本の線")
-        XCTAssertTrue(paper.label.contains("紙目 粗"))
+        XCTAssertTrue(paper.label.contains("紙目 \(grain)"))
         XCTAssertFalse(app.alerts.firstMatch.exists)
         let image = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        image.name = "Coarse paper and four rubbing tools"; image.lifetime = .keepAlways; add(image)
+        image.name = "Paper grain and four rubbing tools"; image.lifetime = .keepAlways; add(image)
     }
 
     @MainActor

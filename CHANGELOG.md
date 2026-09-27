@@ -2,12 +2,21 @@
 
 ## Unreleased — macOS / iPadOS drawing prototype
 
+- Add coarse, medium, and fine paper grain with physical spacing, undo/redo,
+  and Haskell-generated Metal settings.
+- Add finger, stump, and silicone pigment transport, plus kneaded lifting.
+  Preserve pigment through conservative transport and interpolate rubbing
+  at fixed path intervals; share material equations with the Haskell reference.
+  Round transported colours explicitly to nearest-even half precision to avoid
+  accumulating a darkening bias, and preserve untouched pixels exactly.
+- Add optional finger smudging and archive v3, preserving the original grain
+  when opening v1/v2 drawings.
+
 - Build for Mac Catalyst (Apple silicon and Intel); enable mouse input and use
   an app-specific autosave directory on macOS.
 - Add print, screen, and comic paper presets with mm/px/dpi, orientation,
   custom dimensions, and a bounded A4/600 dpi canvas.
 - Add paper color with undo/redo, and pigment strength generated from Haskell.
-  Archive v2 migrates v1 without changing old strokes.
 - Preserve paper tint and print resolution in 16-bit P3 PNG; reduce export
   memory by converting directly from GPU readback into the output buffer.
 
