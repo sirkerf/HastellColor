@@ -12,7 +12,7 @@ private struct MaterialFixture: Decodable {
 func checkMaterials(device: MTLDevice, library: MTLLibrary, fixturePath: String) throws -> Int {
     var checks = 0
     func check(_ condition: Bool, _ message: String) {
-        guard condition else { fatalError(message) }
+        guard condition else { failRendererCheck(message) }
         checks += 1
     }
     func point(_ x: Float, _ y: Float, _ pressure: Float = 0.8) -> PencilSample {

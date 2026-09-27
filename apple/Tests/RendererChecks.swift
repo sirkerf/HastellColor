@@ -1,6 +1,14 @@
 import Foundation
 import MetalKit
 import ImageIO
+import Darwin
+
+// A failed check is an ordinary command-line failure. Do not turn it into a
+// SIGTRAP / macOS crash report; scripts still receive a nonzero exit status.
+func failRendererCheck(_ message: String) -> Never {
+    FileHandle.standardError.write(Data("Renderer checks failed: \(message)\n".utf8))
+    exit(EXIT_FAILURE)
+}
 
 struct Fixture: Decodable {
     var name: String
@@ -18,16 +26,21 @@ struct Fixture: Decodable {
 }
 
 @main struct RendererChecks {
-    static func main() throws {
-        guard CommandLine.arguments.count == 4 else { fatalError("Provide Metal source and CPU fixtures") }
-        guard let device = MTLCreateSystemDefaultDevice() else { fatalError("Metal GPU required; tests cannot be skipped") }
+    static func main() {
+        do { try run() }
+        catch { failRendererCheck(error.localizedDescription) }
+    }
+
+    private static func run() throws {
+        guard CommandLine.arguments.count == 4 else { failRendererCheck("Provide Metal source and CPU fixtures") }
+        guard let device = MTLCreateSystemDefaultDevice() else { failRendererCheck("Metal GPU required; tests cannot be skipped") }
         let source = try String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)
         let library = try device.makeLibrary(source: source, options: nil)
         let fixtures = try JSONDecoder().decode([Fixture].self, from: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2])))
         let painter = try MetalPainter(width: 32, height: 24, device: device, library: library)
         var checks = 0
         func check(_ condition: Bool, _ message: String) {
-            guard condition else { fatalError(message) }
+            guard condition else { failRendererCheck(message) }
             checks += 1
         }
         for fixture in fixtures {

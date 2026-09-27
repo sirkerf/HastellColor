@@ -2,6 +2,9 @@
 
 ## Unreleased — macOS / iPadOS drawing prototype
 
+- Report renderer test failures and thrown errors with exit status 1 instead
+  of crashing the test process and triggering a macOS crash notification.
+
 - Add coarse, medium, and fine paper grain with physical spacing, undo/redo,
   and Haskell-generated Metal settings.
 - Add finger, stump, and silicone pigment transport, plus kneaded lifting.
